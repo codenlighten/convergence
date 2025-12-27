@@ -1,0 +1,28 @@
+{
+  "name": "@convergence/engine",
+  "version": "1.0.0",
+  "description": "Dual-agent recursive deliberation system for achieving optimal solutions through convergence",
+  "main": "index.js",
+  "type": "module",
+  "keywords": [
+    "convergence",
+    "dual-agent",
+    "deliberation",
+    "AI",
+    "optimization",
+    "singularity",
+    "consensus"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "openai": "^4.0.0"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "node test/test-convergence.js"
+  }
+}
