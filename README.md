@@ -108,10 +108,10 @@ Main convergence function.
   - `agentA` (string): Role for Agent A (default: "Expert Researcher")
   - `agentB` (string): Role for Agent B (default: "Critical Reviewer")
   - `maxIterations` (number): Maximum iterations before giving up (default: 8)
-  - `temperature` (number): OpenAI temperature (default: 0.3)
+  - `temperature` (number): OpenAI temperature 0-2 (default: 0.3)
   - `onIteration` (function): Callback for each iteration
   - `openaiApiKey` (string): OpenAI API key (defaults to env var)
-  - `model` (string): OpenAI model (default: "gpt-4")
+  - `model` (string): OpenAI model (default: "gpt-4o-2024-08-06")
 
 **Returns:** Promise<ConvergenceResult>
 ```javascript
@@ -120,25 +120,56 @@ Main convergence function.
   iterations: number,        // How many iterations it took
   finalResponse: object,     // The final agent response
   conversation: array,       // Full conversation history
-  convergenceScore: number   // Final score (0-100)
+  convergenceScore: number,  // Final score (0-100)
+  tokens: {                  // Token usage tracking
+    prompt: number,          // Prompt tokens used
+    completion: number,      // Completion tokens used
+    total: number            // Total tokens used
+  },
+  estimatedCost: number      // Estimated cost in USD
 }
 ```
 
 ### `convergeOnCode(codeRequest, options)`
 
-Specialized for code generation with appropriate agent roles.
+Specialized for code generation with appropriate agent roles (Software Engineer + Code Reviewer).
+
+**Returns:** Promise<ConvergenceResult> - Same as `converge()`
 
 ### `convergeOnArchitecture(architectureQuestion, options)`
 
-Specialized for architecture/design with appropriate agent roles.
+Specialized for architecture/design with appropriate agent roles (Solutions Architect + Technical Critic).
+
+**Returns:** Promise<ConvergenceResult> - Same as `converge()`
 
 ### `getConvergenceScore(agentResponse)`
 
 Calculate convergence score (0-100) for an agent response.
 
+**Parameters:**
+- `agentResponse` (object): Agent response object with `continue` and `missingContext`
+
+**Returns:** number - Score from 0-100
+
 ### `hasConverged(agentResponse)`
 
 Check if an agent response indicates convergence (singularity).
+
+**Parameters:**
+- `agentResponse` (object): Agent response object
+
+**Returns:** boolean - True if `continue === false` AND `missingContext.length === 0`
+
+### `calculateTokenCost(promptTokens, completionTokens, model)`
+
+Calculate estimated cost for tokens based on current OpenAI pricing.
+
+**Parameters:**
+- `promptTokens` (number): Number of prompt tokens
+- `completionTokens` (number): Number of completion tokens  
+- `model` (string): Model name (default: "gpt-4o-2024-08-06")
+
+**Returns:** number - Estimated cost in USD
 
 ## Convergence Scoring
 
@@ -162,6 +193,38 @@ await converge(query, {
   openaiApiKey: 'your-key-here'
 });
 ```
+
+## Error Handling
+
+The convergence engine includes robust error handling with automatic retry logic:
+
+```javascript
+import { converge } from '@convergence/engine';
+
+try {
+  const result = await converge("Your query", {
+    maxIterations: 8
+  });
+  
+  console.log(`Cost: $${result.estimatedCost}`);
+  console.log(`Tokens: ${result.tokens.total}`);
+} catch (error) {
+  // Handles API failures, invalid inputs, rate limiting, etc.
+  console.error(`Convergence failed: ${error.message}`);
+}
+```
+
+**Error Scenarios Handled:**
+- Missing or invalid API key
+- API rate limits (auto-retry with exponential backoff)
+- Invalid parameters (query, temperature, maxIterations)
+- Malformed API responses
+- Network failures
+
+**Retry Logic:**
+- Automatic retry for retriable errors (429, 500, 503)
+- Exponential backoff: 1s, 2s, 4s delays between retries
+- Configurable via `maxRetries` option
 
 ## Examples
 

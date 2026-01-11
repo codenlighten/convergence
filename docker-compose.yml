@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  convergence:
+    build: .
+    container_name: convergence-engine
+    ports:
+      - "3000:3000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_DEFAULT_MODEL=gpt-4o-mini
+      - OPENAI_DEFAULT_TEMPERATURE=0.7
+      - NODE_ENV=production
+    volumes:
+      - ./results:/app/results
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "console.log('ok')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: convergence-db
+    environment:
+      - POSTGRES_USER=convergence
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-changeme}
+      - POSTGRES_DB=convergence
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    container_name: convergence-cache
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_data:

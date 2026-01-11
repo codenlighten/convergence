@@ -34,11 +34,12 @@ const baseAgentResponseSchema = {
       description: "Your confidence level (0-100)"
     }
   },
-  required: ["response", "continue", "missingContext", "confidence"]
+  required: ["response", "continue", "missingContext", "confidence"],
+  additionalProperties: false
 };
 
 /**
- * Query OpenAI with structured output
+ * Query OpenAI with structured output, including retry logic and error handling
  */
 async function queryOpenAI(prompt, options = {}) {
   const {
@@ -46,39 +47,84 @@ async function queryOpenAI(prompt, options = {}) {
     schema = baseAgentResponseSchema,
     temperature = 0.3,
     apiKey = process.env.OPENAI_API_KEY,
-    model = 'gpt-4o-2024-08-06'
+    model = 'gpt-4o-2024-08-06',
+    maxRetries = 3,
+    retryDelay = 1000
   } = options;
 
   if (!apiKey) {
-    throw new Error('OPENAI_API_KEY not set');
+    throw new Error('OPENAI_API_KEY not set. Please set the OPENAI_API_KEY environment variable.');
+  }
+
+  if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
+    throw new Error('Invalid prompt: must be a non-empty string');
   }
 
   const openai = new OpenAI({ apiKey });
+  let lastError;
+  let attempt = 0;
 
-  const response = await openai.chat.completions.create({
-    model,
-    messages: [
-      {
-        role: 'system',
-        content: 'You are participating in a convergence deliberation. Provide thorough analysis and clearly indicate if more work is needed.'
-      },
-      {
-        role: 'user',
-        content: `${prompt}\n\nContext: ${JSON.stringify(context, null, 2)}`
-      }
-    ],
-    response_format: {
-      type: 'json_schema',
-      json_schema: {
-        name: 'agent_response',
-        strict: true,
-        schema
-      }
-    },
-    temperature
-  });
+  while (attempt < maxRetries) {
+    try {
+      attempt++;
+      const response = await openai.chat.completions.create({
+        model,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are participating in a convergence deliberation. Provide thorough analysis and clearly indicate if more work is needed.'
+          },
+          {
+            role: 'user',
+            content: `${prompt}\n\nContext: ${JSON.stringify(context, null, 2)}`
+          }
+        ],
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'agent_response',
+            strict: true,
+            schema
+          }
+        },
+        temperature
+      });
 
-  return JSON.parse(response.choices[0].message.content);
+      if (!response.choices[0]?.message?.content) {
+        throw new Error('Empty response from OpenAI');
+      }
+
+      const parsedResponse = JSON.parse(response.choices[0].message.content);
+      
+      // Validate response structure
+      if (!parsedResponse.response || typeof parsedResponse.continue !== 'boolean' || !Array.isArray(parsedResponse.missingContext)) {
+        throw new Error('Invalid response format from OpenAI');
+      }
+
+      // Return response with token usage
+      return {
+        ...parsedResponse,
+        tokens: {
+          prompt: response.usage?.prompt_tokens || 0,
+          completion: response.usage?.completion_tokens || 0,
+          total: response.usage?.total_tokens || 0
+        }
+      };
+    } catch (error) {
+      lastError = error;
+      const isRetryable = error.status === 429 || error.status === 500 || error.status === 503;
+      
+      if (isRetryable && attempt < maxRetries) {
+        const delay = retryDelay * Math.pow(2, attempt - 1); // exponential backoff
+        console.warn(`⚠️  API error (attempt ${attempt}/${maxRetries}): ${error.message}. Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else if (!isRetryable || attempt === maxRetries) {
+        throw new Error(`OpenAI API failed after ${attempt} attempt(s): ${error.message}`);
+      }
+    }
+  }
+
+  throw lastError;
 }
 
 /**
@@ -116,6 +162,42 @@ export function getConvergenceScore(agentResponse) {
 }
 
 /**
+ * Token pricing for GPT-4o models (as of 2024)
+ * Update these if pricing changes
+ */
+const TOKEN_PRICING = {
+  'gpt-4o-2024-08-06': {
+    prompt: 0.0025,    // $2.50 per 1M tokens
+    completion: 0.010  // $10.00 per 1M tokens
+  },
+  'gpt-4o': {
+    prompt: 0.0025,
+    completion: 0.010
+  },
+  'gpt-4-turbo': {
+    prompt: 0.01,
+    completion: 0.03
+  },
+  'gpt-4': {
+    prompt: 0.03,
+    completion: 0.06
+  }
+};
+
+/**
+ * Calculate estimated cost for tokens
+ * 
+ * @param {number} promptTokens - Number of prompt tokens
+ * @param {number} completionTokens - Number of completion tokens
+ * @param {string} model - Model name
+ * @returns {number} Estimated cost in dollars
+ */
+export function calculateTokenCost(promptTokens, completionTokens, model = 'gpt-4o-2024-08-06') {
+  const pricing = TOKEN_PRICING[model] || TOKEN_PRICING['gpt-4o-2024-08-06'];
+  return (promptTokens * pricing.prompt + completionTokens * pricing.completion) / 1000000;
+}
+
+/**
  * Run convergence loop between two agents
  * 
  * @param {string} initialQuery - The question/problem to converge on
@@ -127,9 +209,13 @@ export function getConvergenceScore(agentResponse) {
  * @param {number} [options.temperature=0.3] - Temperature for queries
  * @param {string} [options.openaiApiKey] - OpenAI API key
  * @param {string} [options.model] - OpenAI model to use
- * @returns {Promise<Object>} Final converged result with full conversation history
+ * @returns {Promise<Object>} Final converged result with full conversation history and cost tracking
  */
 export async function converge(initialQuery, options = {}) {
+  if (!initialQuery || typeof initialQuery !== 'string' || initialQuery.trim().length === 0) {
+    throw new Error('Invalid initialQuery: must be a non-empty string');
+  }
+
   const {
     agentA = "Expert Researcher - Provide comprehensive analysis with depth",
     agentB = "Critical Reviewer - Find gaps, challenge assumptions, suggest improvements",
@@ -139,8 +225,17 @@ export async function converge(initialQuery, options = {}) {
     openaiApiKey = process.env.OPENAI_API_KEY,
     model = 'gpt-4o-2024-08-06'
   } = options;
+
+  if (maxIterations < 1 || !Number.isInteger(maxIterations)) {
+    throw new Error('maxIterations must be a positive integer');
+  }
+
+  if (temperature < 0 || temperature > 2) {
+    throw new Error('temperature must be between 0 and 2');
+  }
   
   const conversation = [];
+  let totalTokens = { prompt: 0, completion: 0, total: 0 };
   let currentContext = {
     originalQuery: initialQuery,
     iteration: 0
@@ -174,6 +269,13 @@ export async function converge(initialQuery, options = {}) {
       model
     });
     
+    // Track tokens
+    if (agentAResponse.tokens) {
+      totalTokens.prompt += agentAResponse.tokens.prompt;
+      totalTokens.completion += agentAResponse.tokens.completion;
+      totalTokens.total += agentAResponse.tokens.total;
+    }
+    
     const scoreA = getConvergenceScore(agentAResponse);
     console.log(`Response: ${agentAResponse.response.substring(0, 200)}...`);
     console.log(`Continue: ${agentAResponse.continue} | Missing: [${agentAResponse.missingContext.join(', ')}]`);
@@ -189,12 +291,15 @@ export async function converge(initialQuery, options = {}) {
     // Check convergence
     if (hasConverged(agentAResponse)) {
       console.log('\n🎉 SINGULARITY REACHED by Agent A!');
+      const estCost = calculateTokenCost(totalTokens.prompt, totalTokens.completion, model);
       return {
         converged: true,
         iterations: i + 1,
         finalResponse: agentAResponse,
         conversation,
-        convergenceScore: 100
+        convergenceScore: 100,
+        tokens: totalTokens,
+        estimatedCost: parseFloat(estCost.toFixed(6))
       };
     }
     
@@ -214,6 +319,13 @@ export async function converge(initialQuery, options = {}) {
       model
     });
     
+    // Track tokens
+    if (agentBResponse.tokens) {
+      totalTokens.prompt += agentBResponse.tokens.prompt;
+      totalTokens.completion += agentBResponse.tokens.completion;
+      totalTokens.total += agentBResponse.tokens.total;
+    }
+    
     const scoreB = getConvergenceScore(agentBResponse);
     console.log(`Response: ${agentBResponse.response.substring(0, 200)}...`);
     console.log(`Continue: ${agentBResponse.continue} | Missing: [${agentBResponse.missingContext.join(', ')}]`);
@@ -229,12 +341,15 @@ export async function converge(initialQuery, options = {}) {
     // Check convergence
     if (hasConverged(agentBResponse)) {
       console.log('\n🎉 SINGULARITY REACHED by Agent B!');
+      const estCost = calculateTokenCost(totalTokens.prompt, totalTokens.completion, model);
       return {
         converged: true,
         iterations: i + 1,
         finalResponse: agentBResponse,
         conversation,
-        convergenceScore: 100
+        convergenceScore: 100,
+        tokens: totalTokens,
+        estimatedCost: parseFloat(estCost.toFixed(6))
       };
     }
     
@@ -259,14 +374,18 @@ export async function converge(initialQuery, options = {}) {
     getConvergenceScore(agentBResponse)
   );
   
+  const estCost = calculateTokenCost(totalTokens.prompt, totalTokens.completion, model);
   console.log(`\n⚠️  Max iterations reached. Best convergence: ${finalScore}%`);
+  console.log(`💰 Tokens used: ${totalTokens.total} | Estimated cost: $${estCost.toFixed(6)}`);
   
   return {
     converged: false,
     iterations: maxIterations,
     finalResponse: finalScore === getConvergenceScore(agentAResponse) ? agentAResponse : agentBResponse,
     conversation,
-    convergenceScore: finalScore
+    convergenceScore: finalScore,
+    tokens: totalTokens,
+    estimatedCost: parseFloat(estCost.toFixed(6))
   };
 }
 
