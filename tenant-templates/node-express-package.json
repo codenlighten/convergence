@@ -1,0 +1,14 @@
+{
+  "name": "convergence-tenant-starter",
+  "version": "1.0.0",
+  "description": "Starter template for Convergence tenant application",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}

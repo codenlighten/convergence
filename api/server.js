@@ -10,6 +10,7 @@ import swaggerJsdoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
 import Bull from 'bull';
 import { converge } from '../index.js';
+import { provisionTenant, getTenantStatus, destroyTenant, listTenants, getTenantLogs } from './tenant-service.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -307,6 +308,77 @@ const swaggerSpec = swaggerJsdoc({ definition: swaggerDefinition, apis: [] });
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
+// ============ TENANT PROVISIONING ENDPOINTS ============
+
+app.post('/api/v1/tenant/spawn', async (req, res, next) => {
+  try {
+    // In production, extract orgId from authenticated context
+    const orgId = req.query.org_id || 1; // Default to test org for now
+    const { name, language, framework, description } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ error: 'name is required' });
+    }
+
+    const tenant = await provisionTenant(orgId, {
+      name,
+      language: language || 'node',
+      framework,
+      description
+    });
+
+    return res.status(201).json({
+      success: true,
+      tenant
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.get('/api/v1/tenant/:envId/status', async (req, res, next) => {
+  try {
+    const { envId } = req.params;
+    const status = await getTenantStatus(parseInt(envId));
+    return res.json(status);
+  } catch (err) {
+    if (err.message === 'Environment not found') {
+      return res.status(404).json({ error: err.message });
+    }
+    next(err);
+  }
+});
+
+app.get('/api/v1/tenant/:envId/logs', async (req, res, next) => {
+  try {
+    const { envId } = req.params;
+    const logs = await getTenantLogs(parseInt(envId));
+    return res.json({ logs });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.delete('/api/v1/tenant/:envId', async (req, res, next) => {
+  try {
+    const { envId } = req.params;
+    const result = await destroyTenant(parseInt(envId));
+    return res.json({ success: true, result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.get('/api/v1/tenant', async (req, res, next) => {
+  try {
+    const orgId = req.query.org_id || 1;
+    const tenants = await listTenants(orgId);
+    return res.json({ tenants });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', queue: USE_QUEUE ? 'redis' : 'memory' });
@@ -321,4 +393,5 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Convergence API running on port ${PORT} (queue: ${USE_QUEUE ? 'redis' : 'memory'})`);
+  console.log(`📦 Tenant provisioning enabled at /api/v1/tenant/*`);
 });

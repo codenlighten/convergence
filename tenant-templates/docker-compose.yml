@@ -1,0 +1,64 @@
+version: '3.9'
+
+services:
+  # Tenant Application Service
+  tenant-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: convergence-tenant:${ENV_ID:-latest}
+    container_name: convergence-tenant-${ENV_ID:-dev}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      # Node environment
+      NODE_ENV: ${NODE_ENV:-production}
+      
+      # Convergence API configuration
+      CONVERGENCE_API_URL: ${CONVERGENCE_API_URL:-http://host.docker.internal:8000/api/v1}
+      CONVERGENCE_API_KEY: ${CONVERGENCE_API_KEY}
+      CONVERGENCE_ORG_ID: ${ORG_ID}
+      CONVERGENCE_ENV_ID: ${ENV_ID}
+      
+      # Tenant metadata
+      TENANT_ID: ${TENANT_ID}
+      TENANT_NAME: ${TENANT_NAME}
+      ORG_ID: ${ORG_ID}
+      ENV_ID: ${ENV_ID}
+      
+      # Application configuration
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DEBUG: ${DEBUG:-false}
+    
+    # Network configuration
+    networks:
+      - convergence
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  convergence:
+    driver: bridge
+
+# Volume management
+volumes:
+  tenant-data:
+    driver: local

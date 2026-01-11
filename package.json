@@ -31,7 +31,8 @@
     "openai": "^4.0.0",
     "pg": "^8.11.5",
     "swagger-jsdoc": "^6.2.8",
-    "swagger-ui-express": "^5.0.1"
+    "swagger-ui-express": "^5.0.1",
+    "uuid": "^9.0.1"
   },
   "scripts": {
     "test": "node test/test-convergence.js",
