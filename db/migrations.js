@@ -89,11 +89,15 @@ async function migration001() {
         estimated_cost NUMERIC(10, 8),
         duration_ms INTEGER,
         status VARCHAR(50) DEFAULT 'completed',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        INDEX idx_org_created (org_id, created_at),
-        INDEX idx_task_id (task_id),
-        INDEX idx_status (status)
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+    `);
+
+    // Create indexes for convergence_history
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_convergence_org_created ON convergence_history(org_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_convergence_task_id ON convergence_history(task_id);
+      CREATE INDEX IF NOT EXISTS idx_convergence_status ON convergence_history(status);
     `);
 
     // Usage Tracking table
