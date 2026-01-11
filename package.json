@@ -19,10 +19,21 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "bull": "^4.12.5",
+    "cors": "^2.8.5",
     "dotenv": "^17.2.3",
-    "openai": "^4.0.0"
+    "express": "^4.19.2",
+    "express-rate-limit": "^6.11.2",
+    "helmet": "^7.1.0",
+    "joi": "^17.12.1",
+    "morgan": "^1.10.0",
+    "openai": "^4.0.0",
+    "pg": "^8.11.5",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1"
   },
   "scripts": {
-    "test": "node test/test-convergence.js"
+    "test": "node test/test-convergence.js",
+    "start:api": "node api/server.js"
   }
 }
