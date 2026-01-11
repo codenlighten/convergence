@@ -222,3 +222,54 @@ For issues:
 4. Restart service: `pm2 restart convergence-api`
 
 You're now running Convergence Engine on DigitalOcean! 🚀
+
+## Phase 4A: Tenant Provisioning Deployment
+
+Once the main API is running, deploy the tenant provisioning system.
+
+### Prerequisites
+
+Ensure on your droplet:
+- Docker is installed and running
+- PostgreSQL is running with convergence database
+- Node.js 20+ is installed
+
+### Step 1: Pull Latest Changes
+
+```bash
+cd /root/convergence
+git pull origin main
+npm install
+npm run migrate
+```
+
+### Step 2: Restart API Server
+
+The updated server includes tenant endpoints:
+
+```bash
+pm2 restart convergence-api
+```
+
+### Step 3: Spawn Test Tenant
+
+```bash
+curl -X POST http://localhost:3000/api/v1/tenant/spawn \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "test-app",
+    "language": "node",
+    "framework": "express"
+  }'
+```
+
+### Step 4: Monitor Tenants
+
+```bash
+docker ps
+curl http://localhost:3000/api/v1/tenant/1/status
+```
+
+See [TENANT_PROVISIONING.md](./TENANT_PROVISIONING.md) for complete details.
+
+---
